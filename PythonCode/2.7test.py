@@ -8,8 +8,10 @@ from PIL import Image, ImageDraw, ImageFont  # Importing image things for proces
 import subprocess
 import sys
 import csv
+#pip3 install gpiozero netifaces spidev rpi.gpio pillow
+#sudo apt-get install python3-rpi.gpio python3-pil python3-smbus python3-dev libopenjp2-7
 #getting juniper switch password from switches.csv
-switchDataFile = "switches.csv"
+switchDataFile = "/home/ahickman/Documents/Python/netBoyEnv/netBoy/PythonCode/Data/switches.csv"
 switches = list(csv.reader(open(switchDataFile)))
 # Eink Display is 264x176 Pixels (For reference)
 
@@ -46,6 +48,14 @@ hostname = socket.gethostname() # device name
 
 
 
+def printLoading():
+    HBlackImage = Image.new('1', (epd2in7.EPD_HEIGHT, epd2in7.EPD_WIDTH), 255)
+    
+    draw = ImageDraw.Draw(HBlackImage)  # Create draw object and pass in the image layer we want to work with (HBlackImage)
+    draw.text((100, 60), "Loading...", font=fontsmall, fill=0)  # This is the overall Text
+    draw.rectangle((20, 250, 34, 176), outline=0)  # Boxes around the key4 description
+    epd.display(epd.getbuffer(HBlackImage))
+
 def printToDisplay(string):
     HBlackImage = Image.new('1', (epd2in7.EPD_HEIGHT, epd2in7.EPD_WIDTH), 255)
     
@@ -63,7 +73,7 @@ def printToDisplay(string):
     dt_string = now.strftime("%Y/%m/%d %H:%M:%S")  # Defines the layout of the datetime string
     draw.line((34, 158, 264, 158), fill=0)  # Draw bottom line
     draw.line((34, 159, 264, 159), fill=0)  # Draw bottom line (make thicker)
-    draw.text((40, 160), f"Last Updated: {dt_string}     ", font=fontsmall, fill=0)  # Date Time String at bottom
+    draw.text((40, 160), f"LU:{dt_string}  [{getBatteryInfo()}]", font=fontsmall, fill=0)  # Date Time String at bottom
 
     # This is the left section of the screen with key descriptions
     draw.line((34, 0, 34, 180), fill=0)  # Draw Vertical Key lines
@@ -86,8 +96,10 @@ def querySwitch(ips):
         command = "sshpass -p " + ip[1] + " ssh pi@" + ip[0] + " \"show ethernet-switching table | match dc:a6:32:c7:84:0a \""
         output = subprocess.check_output(command, shell=True).decode(sys.stdout.encoding).strip()
         outputArray = " ".join(output.split()).split(" ")
-        outputArray.append(ip)
+        
+        outputArray.append(ip[0])
         outputs.append(outputArray)
+    
     return outputs
     
 def updateInfo():
@@ -95,10 +107,12 @@ def updateInfo():
     net_info = f"""ETH0 INFORMATION\n\nHOSTNAME: {hostname}\n[ETH0]{getAd()}\n{getGateways()}"""
     return net_info
 def switchInfo():
+    
     print("getting switch info")
     portInfo = [['n/a','','','','n/a','n/a'],['n/a','','','','n/a','n/a']]
     try:
         portInfo = querySwitch(switches)
+        print(portInfo)
     except Exception as e:
         portInfo = [['n/a','','','','n/a','n/a'],['n/a','','','','n/a','n/a']]
     net_stats = f"""Switch Info
@@ -106,12 +120,14 @@ def switchInfo():
     [Switch]: {portInfo[0][5]}
     [Port]: {portInfo[0][4]}
     [Vlan]: {portInfo[0][0]}
-    
     [Switch]: {portInfo[1][5]}
     [Port]: {portInfo[1][4]}
     [Vlan]: {portInfo[1][0]}
+    [Link Speed]: {getLinkSpeed()}
     """
     return net_stats
+def getLinkSpeed():
+    return subprocess.check_output("sudo ethtool eth0| grep \"Speed\"", shell=True).decode(sys.stdout.encoding).strip()
 def getAd():
 
     try:
@@ -129,23 +145,30 @@ def getGateways():
 def handleBtnPress(btn):
     # python hack for a switch statement. The number represents the pin number and
     # the value is the message it will print
-
+    printLoading()
     switcher = {
-        5: f"{updateInfo()}",
-        6: f"{switchInfo()}",
-        13: f"{cpu_info}",
-        19: f"{tools}"
+        5: f"updateInfo",
+        6: f"switchInfo",
+        13: f"updateInfo",
+        19: f"switchInfo"
     }
    
 
         
         
     # get the string based on the passed button and send it to printToDisplay()
-    msg = switcher.get(btn.pin.number, "Error")
+    num = btn.pin.number
+    if(num == 5 or num == 13):
+        msg = updateInfo()
+    elif(num == 6 or num == 19):
+        msg = switchInfo()
+    else:
+        msg ="error"
     printToDisplay(msg)
 
 # These are the screens that are called when you press a button
-
+def getBatteryInfo():
+    return subprocess.check_output("echo \"get battery\" | nc -q 0 127.0.0.1 8423", shell=True).decode(sys.stdout.encoding).strip()
 
 
 printToDisplay(updateInfo())  # Default screen
